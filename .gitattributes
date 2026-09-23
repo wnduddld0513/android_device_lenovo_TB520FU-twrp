@@ -1,0 +1,5 @@
+* text=auto eol=lf
+prebuilt/kernel binary
+*.so binary
+recovery/root/vendor/bin/** binary
+recovery/root/vendor/firmware/** binary

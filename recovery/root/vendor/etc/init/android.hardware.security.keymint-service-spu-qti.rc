@@ -1,0 +1,16 @@
+# Copyright (c) 2021,2024 Qualcomm Technologies, Inc.
+# All Rights Reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+
+on init && property:ro.boot.product.vendor.sku=pineapple
+    enable vendor.keymint-spu-qti
+
+on init && property:ro.product.device=niobe
+    enable vendor.keymint-spu-qti
+
+service vendor.keymint-spu-qti /vendor/bin/hw/android.hardware.security.keymint-service-spu-qti
+    seclabel u:r:recovery:s0
+    disabled
+    class early_hal
+    user system
+    group system drmrpc

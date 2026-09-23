@@ -1,0 +1,16 @@
+# TB520FU recovery fstab (DRAFT)
+# /data and /metadata options are replaced with the exact stock values from
+# vendor/etc/fstab.qcom by scripts/extract_blobs.sh.
+
+#<src>                                  <mnt_point>     <type>  <mnt_flags and options>  <fs_mgr_flags>
+system                                  /system         erofs   ro                       wait,logical,first_stage_mount,slotselect
+system_ext                              /system_ext     erofs   ro                       wait,logical,first_stage_mount,slotselect
+product                                 /product        erofs   ro                       wait,logical,first_stage_mount,slotselect
+vendor                                  /vendor         erofs   ro                       wait,logical,first_stage_mount,slotselect
+vendor_dlkm                             /vendor_dlkm    erofs   ro                       wait,logical,first_stage_mount,slotselect
+system_dlkm                             /system_dlkm    ext4    ro                       wait,logical,first_stage_mount,slotselect
+odm                                     /odm            erofs   ro                       wait,logical,first_stage_mount,slotselect
+
+/dev/block/by-name/metadata             /metadata       f2fs    noatime,nosuid,nodev,discard                         wait,check,formattable,first_stage_mount
+/dev/block/bootdevice/by-name/userdata  /data           f2fs    noatime,nosuid,nodev,discard,reserve_root=32768,resgid=1065,fsync_mode=nobarrier,inlinecrypt   latemount,wait,check,formattable,fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized+wrappedkey_v0,keydirectory=/metadata/vold/metadata_encryption,metadata_encryption=aes-256-xts:wrappedkey_v0,quota,reservedsize=128M,sysfs_path=/sys/devices/platform/soc/1d84000.ufshc,checkpoint=fs
+/dev/block/bootdevice/by-name/misc      /misc           emmc    defaults                 defaults,first_stage_mount

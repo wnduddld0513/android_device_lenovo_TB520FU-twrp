@@ -1,0 +1,9 @@
+# Copyright (c) 2021 Qualcomm Technologies, Inc.
+# All Rights Reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+
+service vendor.keymint-qti /vendor/bin/hw/android.hardware.security.keymint-service-qti
+    seclabel u:r:recovery:s0
+    class early_hal
+    user system
+    group system drmrpc

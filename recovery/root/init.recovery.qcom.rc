@@ -1,0 +1,97 @@
+# Copyright (c) 2017-2018,2020-2021 The Linux Foundation. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# TB520FU (Lapis, SM8650) recovery init
+
+# SELinux stays enforcing (setenforce is neverallow'd for every domain); the
+# domains TWRP needs are permissive via sepolicy/twrp_recovery.te.
+# /system/bin/bootstrap/linker64 (needed by servicemanager) is shipped in the
+# ramdisk by scripts/sync_tree.sh: init may not create dirs under /system.
+
+on early-fs
+    write /proc/sys/walt/sched_lib_name "recovery,Updater,updater,update_engine_sideload"
+    write /proc/sys/walt/sched_lib_mask_force 255
+
+on init
+    setprop sys.usb.configfs 1
+    setprop prepdecrypt.setpatch true
+    write /sys/class/backlight/panel0-backlight/brightness 800
+    # CPU temperature for the status bar (/tmp/cpu_temp -> cpuss-0). Run it
+    # synchronously: TWRP checks the path once at startup.
+    exec u:r:recovery:s0 root root -- /system/bin/sh /system/bin/cpu_temp_link.sh
+
+on property:ro.boot.usbcontroller=*
+    setprop sys.usb.controller ${ro.boot.usbcontroller}
+    wait /sys/bus/platform/devices/${ro.boot.usb.dwc3_msm:-a600000.ssusb}/mode
+    write /sys/bus/platform/devices/${ro.boot.usb.dwc3_msm:-a600000.ssusb}/mode peripheral
+    wait /sys/class/udc/${ro.boot.usbcontroller} 1
+
+on fs
+    wait /dev/block/platform/soc/${ro.boot.bootdevice}
+    symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
+    write /proc/sys/kernel/firmware_config/force_sysfs_fallback 1
+    chmod 0660 /dev/qseecom
+    chown system drmrpc /dev/qseecom
+
+    # Start the TZ / keymint stack right away: its kernel modules (qseecom_proxy,
+    # smcinvoke) are loaded in first stage, and TWRP attempts metadata
+    # decryption only once, right after its own module loading, so these must
+    # be up before then (waiting for twrp.modules.loaded was ~2 s too late).
+    # qseecomd / keymint / spdaemon / sec_nvm need persist (stock fstab options).
+    # The keymint TA reads the secure file system through qseecomd's drmfs
+    # listener, which requires /mnt/vendor/persist in /proc/mounts.
+    mkdir /mnt/vendor 0755 root root
+    exec u:r:recovery:s0 root root -- /system/bin/sh /system/bin/mount_persist.sh
+    mkdir /mnt/vendor/spunvm 0660 system system
+    mount vfat /dev/block/bootdevice/by-name/spunvm /mnt/vendor/spunvm
+
+    # keymint registers with servicemanager (TWRP would only start it later)
+    start servicemanager
+    start vendor.qseecomd
+    start vendor.health-default
+    start vendor.boot-qti
+    start vendor.spdaemon
+    start vendor.sec_nvm
+
+on property:twrp.modules.loaded=true
+    # ADSP brings up the PMIC glink (battery / charger / USB role)
+    start load-adsp
+    setprop twrp.module.handler_done true
+
+on property:vendor.sys.listeners.registered=true
+    # keymint's TZ session calls back into qseecomd listeners; started any
+    # earlier its smcinvoke callbacks time out and IKeyMintDevice never registers.
+    # Re-check persist right before (TWRP's own /persist handling at startup
+    # can leave it unmounted).
+    exec u:r:recovery:s0 root root -- /system/bin/sh /system/bin/mount_persist.sh
+    start vendor.keymint-qti
+    start vendor.keymint-spu-qti
+    # gatekeeper must not hit TZ while keymint initialises (see script)
+    start start_gatekeeper
+
+on property:vendor.twrp.gatekeeper.start=1
+    start vendor.gatekeeper_default
+
+on property:ro.crypto.state=encrypted && property:ro.boot.dynamic_partitions=true
+    start prepdecrypt
+
+service load-adsp /system/bin/load-adsp.sh
+    user root
+    group root
+    disabled
+    oneshot
+    seclabel u:r:recovery:s0
+
+service start_gatekeeper /system/bin/sh /system/bin/start_gatekeeper.sh
+    user root
+    group root
+    disabled
+    oneshot
+    seclabel u:r:recovery:s0
+
+service prepdecrypt /system/bin/prepdecrypt.sh
+    user root
+    group root
+    disabled
+    oneshot
+    seclabel u:r:recovery:s0

@@ -1,0 +1,19 @@
+# The locked TB520FU bootloader never passes androidboot.selinux=permissive
+# (the ABL does not forward the recovery header cmdline either), and
+# "neverallow * kernel:security setenforce" rules out switching at runtime,
+# so init stays enforcing. Every file in the recovery ramdisk is labeled
+# rootfs, so make the domains TWRP's services run in permissive instead:
+#  - recovery: TWRP itself, servicemanager/keystore2 (seclabel recovery) and
+#    the vendor decryption services started from init.recovery.qcom.rc
+#  - logd: init.recovery.logd.rc has no seclabel; entering logd from a rootfs
+#    file is otherwise denied (entrypoint)
+#  - kernel: firmware loading (ADSP -> pmic_glink/UCSI -> USB role/adb,
+#    Novatek touch firmware) reads /vendor/firmware_mnt (vfat); denied
+#    "kernel -> vfat:dir search" made adsp.mdt fail with -13
+#  - hal_fastboot_default: binder calls to recovery / kmsg writes denied
+userdebug_or_eng(`
+  permissive recovery;
+  permissive logd;
+  permissive kernel;
+  permissive hal_fastboot_default;
+')

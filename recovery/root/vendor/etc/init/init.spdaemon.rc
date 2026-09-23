@@ -1,0 +1,14 @@
+service vendor.spdaemon /vendor/bin/spdaemon
+    seclabel u:r:recovery:s0
+    class core
+    user system
+    group system
+    disabled
+    shutdown critical
+
+service vendor.sec_nvm /vendor/bin/sec_nvm
+    seclabel u:r:recovery:s0
+    class core
+    user system
+    group system
+    disabled
