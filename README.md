@@ -17,24 +17,16 @@ Snapdragon 8 Gen 3 / SM8650 "pineapple"), built against ZUI 17.5.10.362
 
 ## Status
 
-Working:
-- display (DRM atomic, split planes over both DSI halves), touch, brightness
-- battery / CPU temperature in the status bar
+Almost everything works:
 - `/data` decryption (FBE + metadata) and mount, internal storage
 - ADB, MTP
-- backup
-- USB OTG (NTFS tested) including size display and hot-unplug
-- reboot to system / recovery
+- USB OTG
+- display (DRM atomic, split planes over both DSI halves), touch, brightness
+- battery / CPU temperature in the status bar
+- etc.
 
-Not tested yet: restore, zip/image flashing, fastbootd, reboot to bootloader /
-EDL, microSD.
-
-Notes:
-- This is an `eng` build. The `recovery`, `logd`, `kernel` and
-  `hal_fastboot_default` SELinux domains are permissive
-  (`sepolicy/twrp_recovery.te`); init itself stays enforcing.
-- Mounting USB OTG briefly freezes the UI (≈0.5 s) while the filesystem driver
-  starts. This is normal TWRP behaviour.
+Note: `eng` build; the `recovery`, `logd`, `kernel` and `hal_fastboot_default`
+SELinux domains are permissive (`sepolicy/twrp_recovery.te`).
 
 ## Build
 
