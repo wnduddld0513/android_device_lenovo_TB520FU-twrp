@@ -5,8 +5,8 @@
 # layout, then sanity-check the image before it is flashed.
 #
 # usage: bash device/lenovo/TB520FU/tools/sign.sh [path/to/recovery.img]
-# env:   VBMETA=<installed firmware's vbmeta.img>  also verify the recovery
-#                                                 chain against it (optional)
+# env:   VBMETA=<vbmeta.img>  optional: also cross-check the built-in chain
+#                             values below against this image (e.g. an EDL dump)
 #        OUT_DIR=<dir>  where the signed image goes
 #                       (default: out/target/product/TB520FU)
 set -euo pipefail
@@ -20,6 +20,10 @@ mkdir -p "$WORK/out" "$WIN"
 AVBTOOL="python3 $TWRP_DIR/external/avb/avbtool.py"
 KEY=$TWRP_DIR/external/avb/test/data/testkey_rsa4096.pem
 EXPECT_KEY_SHA1=2597c218aae470a130f61162feaae70afd97f011   # AOSP testkey_rsa4096
+# recovery chain descriptor of the installed (LTBox/DynoBox resigned) vbmeta:
+# location 1, testkey_rsa4096. Built in so no firmware image is needed.
+CHAIN_LOC=1
+CHAIN_KEY=$EXPECT_KEY_SHA1
 PART_SIZE=104857600
 FINGERPRINT='Lenovo/TB520FU/TB520FU:14/UKQ1.240826.001/ZUI_17.5.10.362_260719_ROW:user/release-keys'
 
@@ -159,26 +163,27 @@ rm -rf "$V"; mkdir -p "$V"; cp "$OUT" "$V/recovery.img"
 $AVBTOOL verify_image --image "$V/recovery.img" --key "$KEY"
 rm -rf "$V"
 
-if [ -z "$VBMETA" ]; then
-    echo "==> chain check skipped (set VBMETA=<firmware>/vbmeta.img to verify against your firmware)"
-    CHAIN_KEY=skip
-else
-    echo "==> chain check against $VBMETA"
-    CHAIN_KEY=$($AVBTOOL info_image --image "$VBMETA" | grep -A4 'Partition Name:          recovery' | sed -n 's/.*Public key (sha1): *//p')
-    CHAIN_LOC=$($AVBTOOL info_image --image "$VBMETA" | grep -A4 'Partition Name:          recovery' | sed -n 's/.*Rollback Index Location: *//p')
-    echo "   vbmeta chains recovery at location $CHAIN_LOC to key $CHAIN_KEY"
+echo "==> chain check (recovery at location $CHAIN_LOC, key $CHAIN_KEY)"
+if [ -n "$VBMETA" ]; then
+    if [ -f "$VBMETA" ]; then
+        INFO=$($AVBTOOL info_image --image "$VBMETA")
+        VKEY=$(echo "$INFO" | grep -A4 'Partition Name:          recovery' | sed -n 's/.*Public key (sha1): *//p')
+        VLOC=$(echo "$INFO" | grep -A4 'Partition Name:          recovery' | sed -n 's/.*Rollback Index Location: *//p')
+        if [ "$VKEY" = "$CHAIN_KEY" ] && [ "$VLOC" = "$CHAIN_LOC" ]; then
+            echo "   OK: $VBMETA agrees"
+        else
+            echo "   ERROR: $VBMETA chains recovery at location $VLOC to key $VKEY"; exit 1
+        fi
+    else
+        echo "   WARNING: VBMETA=$VBMETA not found, using the built-in values"
+    fi
 fi
-if [ "$CHAIN_KEY" = skip ]; then
-    :
-elif [ "$CHAIN_KEY" = "$KSHA" ]; then
-    V=$WORK/out/verify; rm -rf "$V"; mkdir -p "$V"; cp "$OUT" "$V/recovery.img"
-    $AVBTOOL verify_image --image "$V/recovery.img" \
-        --expected_chain_partition "recovery:$CHAIN_LOC:$WORK/out/testkey_rsa4096.avbpubkey"
-    rm -rf "$V"
-    echo "   OK: recovery matches the vbmeta chain"
-else
-    echo "   WARNING: chain key differs ($CHAIN_KEY vs $KSHA); a locked device will reject this recovery"
-fi
+[ "$CHAIN_KEY" = "$KSHA" ] || { echo "   ERROR: signing key $KSHA is not the chained key"; exit 1; }
+V=$WORK/out/verify; rm -rf "$V"; mkdir -p "$V"; cp "$OUT" "$V/recovery.img"
+$AVBTOOL verify_image --image "$V/recovery.img" \
+    --expected_chain_partition "recovery:$CHAIN_LOC:$WORK/out/testkey_rsa4096.avbpubkey"
+rm -rf "$V"
+echo "   OK: recovery matches the vbmeta chain"
 
 echo "==> publish to $WIN"
 cp "$OUT" "$WIN/"

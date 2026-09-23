@@ -133,6 +133,10 @@ partition size 104857600, recovery fingerprint property.
   firmware. Otherwise the device will not boot this image.
 - **Unlocked bootloader:** boots with any vbmeta (orange state).
 
+`tools/sign.sh` has this chain (location 1, key `2597c218…`) built in and
+verifies the signed image against it, so no firmware image is needed. Set
+`VBMETA=<vbmeta.img>` to also cross-check those values against a dump.
+
 ## Installation
 
 Back up your current `recovery_a` / `recovery_b` first.
