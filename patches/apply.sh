@@ -234,7 +234,31 @@ PY
     echo "patched removable hot-unplug handling"
 fi
 
-# 13. Report any remaining references to removed FDE functions
+# 13. landscape theme, flash_done page: the A/B-only "Wipe Dalvik" button kept
+#     the portrait placement (%indent%, %row21a_y%). row21a_y does not exist in
+#     the landscape theme, so the button lands on top of the TWRP logo. Put it
+#     where the non-A/B "Wipe Cache/Dalvik" button is (left of Reboot).
+THEME=bootable/recovery/gui/theme/common/landscape.xml
+if grep -q '<!-- TB520FU: A/B wipe dalvik -->' "$THEME"; then
+    echo "landscape A/B wipe dalvik button: already patched"
+else
+    python3 - "$THEME" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = ('<condition var1="tw_ab_device" var2="1"/>\n\t\t\t\t<placement x="%indent%" y="%row21a_y%"/>\n'
+       '\t\t\t\t<text>{@wipe_dalvik_btn=Wipe Dalvik}</text>')
+new = ('<condition var1="tw_ab_device" var2="1"/>\n\t\t\t\t<!-- TB520FU: A/B wipe dalvik -->\n'
+       '\t\t\t\t<placement x="%col2_x_left%" y="%row15a_y%"/>\n'
+       '\t\t\t\t<text>{@wipe_dalvik_btn=Wipe Dalvik}</text>')
+if s.count(old) != 1:
+    sys.exit("ERROR: landscape A/B Wipe Dalvik placement not found exactly once")
+open(p, "w").write(s.replace(old, new, 1))
+PY
+    echo "patched landscape A/B wipe dalvik button"
+fi
+
+# 14. Report any remaining references to removed FDE functions
 left=$(grep -rn -E 'cryptfs_(check_footer|get_password_type|check_passwd)|delete_crypto_blk_dev|set_partition_data\(' \
     --include=*.cpp bootable/recovery | grep -v '^\s*//' || true)
 [ -z "$left" ] && echo "FDE references: none left" || { echo "WARNING: FDE references remain:"; echo "$left"; }

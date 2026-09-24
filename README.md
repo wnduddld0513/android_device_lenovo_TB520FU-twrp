@@ -120,6 +120,7 @@ stops with an error if a patch no longer applies after a `repo sync`.
 | 10 | NTFS mount updates the size | USB OTG showed 0 MB |
 | 11 | unmounting removable storage clears its size | stale size after unmount |
 | 12 | hot-unplug of fixed `/dev/block/sdX` removable entries | unmount, clear size, switch storage back to internal |
+| 13 | landscape theme: A/B "Wipe Dalvik" button after flashing | it used portrait coordinates and landed on the header |
 
 ## Signing
 
