@@ -1,19 +1,44 @@
+# TB520FU recovery SELinux policy.
+#
 # The locked TB520FU bootloader never passes androidboot.selinux=permissive
-# (the ABL does not forward the recovery header cmdline either), and
-# "neverallow * kernel:security setenforce" rules out switching at runtime,
-# so init stays enforcing. Every file in the recovery ramdisk is labeled
-# rootfs, so make the domains TWRP's services run in permissive instead:
-#  - recovery: TWRP itself, servicemanager/keystore2 (seclabel recovery) and
-#    the vendor decryption services started from init.recovery.qcom.rc
-#  - logd: init.recovery.logd.rc has no seclabel; entering logd from a rootfs
-#    file is otherwise denied (entrypoint)
-#  - kernel: firmware loading (ADSP -> pmic_glink/UCSI -> USB role/adb,
-#    Novatek touch firmware) reads /vendor/firmware_mnt (vfat); denied
-#    "kernel -> vfat:dir search" made adsp.mdt fail with -13
-#  - hal_fastboot_default: binder calls to recovery / kmsg writes denied
+# and "neverallow * kernel:security setenforce" rules out switching at
+# runtime, so SELinux is enforcing for the whole recovery session.
+#
+# Every file in the recovery ramdisk is labeled rootfs (initramfs has no
+# per-file labels). AOSP enters its own recovery domains from rootfs with
+# recovery_only(domain_trans(init, rootfs, <domain>)) (see private/init.te);
+# logd is added the same way below.
+
+# recovery: TWRP itself plus the vendor services it starts from the ramdisk
+# with seclabel u:r:recovery:s0 (qseecomd, keymint, gatekeeper, spdaemon,
+# servicemanager, keystore2, ...). Backup / restore / wipe / file manager
+# must read, write and relabel every file type on /data, /metadata and the
+# block devices; allowing that explicitly would make the domain unconfined
+# and hits the AOSP neverallow rules. This is the only permissive domain.
 userdebug_or_eng(`
   permissive recovery;
-  permissive logd;
-  permissive kernel;
-  permissive hal_fastboot_default;
 ')
+
+# logd: TWRP's init.recovery.logd.rc runs /system/bin/logd (rootfs) with
+# seclabel u:r:logd:s0.
+# Its control socket comes from init (service override in
+# init.recovery.qcom.rc); logd only looks up paths in the ramdisk.
+recovery_only(`
+  domain_trans(init, rootfs, logd)
+  allow logd rootfs:dir r_dir_perms;
+')
+
+# kernel: firmware loading (ADSP -> pmic_glink / UCSI -> USB role and adb,
+# Novatek touch firmware) reads /vendor/firmware_mnt, which is vfat.
+allow kernel vfat:dir r_dir_perms;
+allow kernel vfat:file r_file_perms;
+
+# fastboot HAL (fastbootd): logs to /dev/kmsg and calls back into TWRP.
+allow hal_fastboot_default kmsg_device:chr_file w_file_perms;
+binder_call(hal_fastboot_default, recovery)
+
+# ueventd: parallel coldboot threads adjust their priority.
+allow ueventd self:global_capability_class_set sys_nice;
+
+# vendor_init: path lookups through ramdisk directories (/system/bin).
+allow vendor_init rootfs:dir r_dir_perms;

@@ -18,15 +18,20 @@ Snapdragon 8 Gen 3 / SM8650 "pineapple"), built against ZUI 17.5.10.362
 ## Status
 
 Almost everything works:
-- `/data` decryption (FBE + metadata) and mount, internal storage
+- `/data` decryption (FBE + metadata) and mount, internal storage, including
+  PIN / password / pattern (AIDL GateKeeper, HIDL fallback)
 - ADB, MTP
 - USB OTG
 - display (DRM atomic, split planes over both DSI halves), touch, brightness
 - battery / CPU temperature in the status bar
 - etc.
 
-Note: `eng` build; the `recovery`, `logd`, `kernel` and `hal_fastboot_default`
-SELinux domains are permissive (`sepolicy/twrp_recovery.te`).
+SELinux is enforcing. Only the `recovery` domain (TWRP itself and the vendor
+services it starts from the ramdisk) is permissive: backup / restore must
+touch every file type on `/data`, which the AOSP neverallow rules forbid for
+an enforcing domain. logd, kernel, fastboot and init run enforcing with no
+denials (`sepolicy/twrp_recovery.te`). `su` is AOSP's own adb-root shell
+domain of `eng` builds.
 
 ## Build
 
@@ -96,7 +101,7 @@ Output: `out/target/product/TB520FU/TWRP-3.7.1_14-TB520FU-<date>-landscape.img`
 plus `SHA256SUMS.txt`. The script refuses to publish an image that would not
 boot. It checks:
 - the boot header (v4, no kernel) and the ramdisk contents
-- the permissive domains and the `misc` label
+- that only `recovery` is permissive, and the `misc` label
 - the VINTF fragments
 - the shared-library closure of init, twrp, keystore2, qseecomd and keymint
 - the AVB signature
@@ -121,6 +126,7 @@ stops with an error if a patch no longer applies after a `repo sync`.
 | 11 | unmounting removable storage clears its size | stale size after unmount |
 | 12 | hot-unplug of fixed `/dev/block/sdX` removable entries | unmount, clear size, switch storage back to internal |
 | 13 | landscape theme: A/B "Wipe Dalvik" button after flashing | it used portrait coordinates and landed on the header |
+| 14 | `system_vold-0001-…`, `bootable_recovery-0003-…` | AIDL GateKeeper (HIDL fallback) so PIN / password / pattern decryption works (TWRP-Test twrp-16.0) |
 
 ## Signing
 

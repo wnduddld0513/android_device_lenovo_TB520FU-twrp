@@ -147,6 +147,9 @@ strip_block() { # file header-regex : delete an "on ..." block whose header matc
         !skip' "$1" > "$1.tmp" && mv "$1.tmp" "$1"
 }
 [ -f "$INIT/qseecomd.rc" ] && strip_block "$INIT/qseecomd.rc" '^on init'
+# notify-topology socket: init (enforcing) may not create it in the unlabeled
+# /dev/socket, and qseecomd's listeners work without it in recovery
+[ -f "$INIT/qseecomd.rc" ] && sed -i '/socket notify-topology/d' "$INIT/qseecomd.rc"
 [ -f "$INIT/android.hardware.security.keymint-service-qti.rc" ] && \
     strip_block "$INIT/android.hardware.security.keymint-service-qti.rc" '^on init'
 [ -f "$INIT/init.spdaemon.rc" ] && strip_block "$INIT/init.spdaemon.rc" '^on '

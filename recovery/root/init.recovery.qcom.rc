@@ -3,33 +3,24 @@
 #
 # TB520FU (Lapis, SM8650) recovery init
 
-# SELinux stays enforcing (setenforce is neverallow'd for every domain); the
-# domains TWRP needs are permissive via sepolicy/twrp_recovery.te.
+# SELinux stays enforcing (setenforce is neverallow'd for every domain); only
+# the recovery domain is permissive (sepolicy/twrp_recovery.te). init itself
+# is enforcing, so sysfs/proc writes that need extra labels are not done here
+# (brightness is set by TWRP, the USB role is left to the dwc3 driver so USB
+# OTG host mode keeps working).
 # /system/bin/bootstrap/linker64 (needed by servicemanager) is shipped in the
-# ramdisk by scripts/sync_tree.sh: init may not create dirs under /system.
-
-on early-fs
-    write /proc/sys/walt/sched_lib_name "recovery,Updater,updater,update_engine_sideload"
-    write /proc/sys/walt/sched_lib_mask_force 255
+# ramdisk: init may not create dirs under /system.
 
 on init
     setprop sys.usb.configfs 1
     setprop prepdecrypt.setpatch true
-    write /sys/class/backlight/panel0-backlight/brightness 800
     # CPU temperature for the status bar (/tmp/cpu_temp -> cpuss-0). Run it
     # synchronously: TWRP checks the path once at startup.
     exec u:r:recovery:s0 root root -- /system/bin/sh /system/bin/cpu_temp_link.sh
 
-on property:ro.boot.usbcontroller=*
-    setprop sys.usb.controller ${ro.boot.usbcontroller}
-    wait /sys/bus/platform/devices/${ro.boot.usb.dwc3_msm:-a600000.ssusb}/mode
-    write /sys/bus/platform/devices/${ro.boot.usb.dwc3_msm:-a600000.ssusb}/mode peripheral
-    wait /sys/class/udc/${ro.boot.usbcontroller} 1
-
 on fs
     wait /dev/block/platform/soc/${ro.boot.bootdevice}
     symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
-    write /proc/sys/kernel/firmware_config/force_sysfs_fallback 1
     chmod 0660 /dev/qseecom
     chown system drmrpc /dev/qseecom
 
@@ -42,8 +33,6 @@ on fs
     # listener, which requires /mnt/vendor/persist in /proc/mounts.
     mkdir /mnt/vendor 0755 root root
     exec u:r:recovery:s0 root root -- /system/bin/sh /system/bin/mount_persist.sh
-    mkdir /mnt/vendor/spunvm 0660 system system
-    mount vfat /dev/block/bootdevice/by-name/spunvm /mnt/vendor/spunvm
 
     # keymint registers with servicemanager (TWRP would only start it later)
     start servicemanager
@@ -74,6 +63,23 @@ on property:vendor.twrp.gatekeeper.start=1
 
 on property:ro.crypto.state=encrypted && property:ro.boot.dynamic_partitions=true
     start prepdecrypt
+
+# TWRP's init.recovery.logd.rc (imported before this file) has no "logd"
+# control socket, so logd tried to create /dev/socket/logd itself, which
+# SELinux denies now that logd runs enforcing. Same service plus the socket,
+# as in system/logging/logd/logd.rc.
+service logd /system/bin/logd
+    override
+    class core
+    socket logd stream 0666 root root
+    socket logdr seqpacket 0666 root root
+    socket logdw dgram+passcred 0222 root root
+    file /proc/kmsg r
+    file /dev/kmsg w
+    user root
+    group root
+    capabilities SYSLOG AUDIT_CONTROL SETGID SETUID
+    seclabel u:r:logd:s0
 
 service load-adsp /system/bin/load-adsp.sh
     user root

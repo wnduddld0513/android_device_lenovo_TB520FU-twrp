@@ -80,15 +80,16 @@ for l in libminuitwrp.so libguitwrp.so libaosprecovery.so libtwrpinstall.so libt
 done
 [ $stale = 0 ] || { echo "   ERROR: rebuild with scripts/build.sh (it clears the recovery staging dir)"; exit 1; }
 
-echo "==> SELinux: recovery domain must be permissive (locked bootloader keeps init enforcing)"
+echo "==> SELinux: only the recovery domain is permissive (init stays enforcing)"
 CIL=$(ls "$TWRP_DIR"/out/soong/.intermediates/system/sepolicy/recovery_sepolicy.cil/android_common/*/recovery_sepolicy.cil 2>/dev/null | head -n1)
-for d in recovery logd kernel hal_fastboot_default; do
-    if [ -n "$CIL" ] && grep -q "(typepermissive $d)" "$CIL"; then
-        echo "   OK: (typepermissive $d)"
-    else
-        echo "   ERROR: $d domain is not permissive in the built policy"; exit 1
-    fi
-done
+[ -n "$CIL" ] || { echo "   ERROR: recovery_sepolicy.cil not found"; exit 1; }
+PERM=$(grep -o '(typepermissive [^)]*)' "$CIL" | sed 's/(typepermissive \(.*\))/\1/' | sort -u | tr '\n' ' ')
+echo "   permissive domains: $PERM"
+# su is AOSP's own adb-root shell domain, permissive in every eng/userdebug build
+case " $PERM" in
+    " recovery "|" recovery su ") echo "   OK" ;;
+    *) echo "   ERROR: expected only 'recovery' (and AOSP's su) to be permissive"; exit 1 ;;
+esac
 # init stays enforcing: it must be able to write the BCB to misc, otherwise it
 # cancels "reboot,recovery" and TWRP just restarts
 if grep -q 'by-name/misc.*misc_block_device' "$WORK/out/unpack/root/vendor_file_contexts" 2>/dev/null; then
