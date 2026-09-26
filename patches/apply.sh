@@ -258,7 +258,16 @@ PY
     echo "patched landscape A/B wipe dalvik button"
 fi
 
-# 14. Report any remaining references to removed FDE functions
+# 14. AIDL GateKeeper for PIN / password / pattern decryption. twrp-14.1
+#     Decrypt.cpp only asks for the HIDL android.hardware.gatekeeper@1.0
+#     service; TB520FU (stock ZUI and AOSP ROMs) only has the AIDL
+#     IGatekeeper, so every credential failed with "failed to get gatekeeper
+#     service". Use AIDL when declared, keep HIDL as fallback (TWRP-Test
+#     twrp-16.0 vold 561a50a + 2c74b9c, recovery e2f36c05).
+apply_patch system/vold "$PATCHES/system_vold-0001-support-AIDL-GateKeeper.patch"
+apply_patch bootable/recovery "$PATCHES/bootable_recovery-0003-support-AIDL-GateKeeper-2-2.patch"
+
+# 15. Report any remaining references to removed FDE functions
 left=$(grep -rn -E 'cryptfs_(check_footer|get_password_type|check_passwd)|delete_crypto_blk_dev|set_partition_data\(' \
     --include=*.cpp bootable/recovery | grep -v '^\s*//' || true)
 [ -z "$left" ] && echo "FDE references: none left" || { echo "WARNING: FDE references remain:"; echo "$left"; }
