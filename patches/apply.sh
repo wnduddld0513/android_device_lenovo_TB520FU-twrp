@@ -184,23 +184,29 @@ PY
     echo "patched removable unmount size reset"
 fi
 
-# 12. Hot-unplug: Handle_Uevent() only acts on sysfs ("/devices/...") fstab
-#     entries, so the fixed /dev/block/sdg1 (USB OTG) and mmcblk0p1 (microSD)
-#     entries in twrp.flags ignore removal and keep a stale mount + size.
-#     On a disk "remove" uevent, unmount (lazy if busy) every removable
-#     partition on that disk, clear its sizes, move the current storage back
-#     to the default one if needed and refresh the Mount page.
+# 12. Hotplug of removable storage. Handle_Uevent() only acts on sysfs
+#     ("/devices/...") fstab entries, so the fixed /dev/block/sdg1 (USB OTG)
+#     and mmcblk0p1 (microSD) entries in twrp.flags ignore both plug-in and
+#     removal. Event driven, no polling:
+#     - partition "add" of the entry's block device: mount it (Mount() reads
+#       the size of removable storage) and export it over MTP
+#     - disk "remove": unmount (lazy if busy), clear the sizes, move the
+#       current storage back to the default one if needed
+#     Either way bump tw_storage_changed so an open storage list reloads.
+#     read_uevent() only forwarded "disk" events; forward "partition" too,
+#     the sysfs-entry code below still only sees disks.
 PM=bootable/recovery/partitionmanager.cpp
-if grep -q '// removable hot-unplug' "$PM"; then
-    echo "removable hot-unplug handling: already patched"
+PL=bootable/recovery/gui/partitionlist.cpp
+if grep -q '// removable hotplug v2' "$PM"; then
+    echo "removable hotplug handling: already patched"
 else
     python3 - "$PM" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-old = ("void TWPartitionManager::Handle_Uevent(const Uevent_Block_Data& uevent_data) {\n"
-       "\tstd::vector<TWPartition*>::iterator iter;\n\n")
-new = old + r'''	if (uevent_data.action == "remove" && !uevent_data.block_device.empty()) { // removable hot-unplug
+head = ("void TWPartitionManager::Handle_Uevent(const Uevent_Block_Data& uevent_data) {\n"
+        "\tstd::vector<TWPartition*>::iterator iter;\n\n")
+v1 = r'''	if (uevent_data.action == "remove" && !uevent_data.block_device.empty()) { // removable hot-unplug
 		string disk = "/dev/block/" + uevent_data.block_device;
 		for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
 			TWPartition* part = *iter;
@@ -227,11 +233,116 @@ new = old + r'''	if (uevent_data.action == "remove" && !uevent_data.block_device
 	}
 
 '''
-if s.count(old) != 1:
+v2 = r'''	if (!uevent_data.block_device.empty()) { // removable hotplug v2
+		string node = "/dev/block/" + uevent_data.block_device;
+		bool changed = false;
+		for (iter = Partitions.begin(); iter != Partitions.end(); iter++) {
+			TWPartition* part = *iter;
+			if (!part->Removable || !part->Sysfs_Entry.empty())
+				continue;
+			if (uevent_data.action == "add" && uevent_data.type == "partition" &&
+			    part->Primary_Block_Device == node) {
+				// ueventd creates the node from this same uevent (wait max 1 s)
+				for (int i = 0; i < 20 && !TWFunc::Path_Exists(node); i++)
+					usleep(50000);
+				LOGINFO("%s: %s was plugged in\n", part->Mount_Point.c_str(), node.c_str());
+				if (Mount_By_Path(part->Mount_Point, false)) {
+					Add_MTP_Storage(part->Mount_Point);
+					changed = true;
+				}
+			} else if (uevent_data.action == "remove" && uevent_data.type == "disk" &&
+			           part->Primary_Block_Device.compare(0, node.size(), node) == 0) {
+				LOGINFO("%s: %s was unplugged\n", part->Mount_Point.c_str(), node.c_str());
+				if (part->Is_Mounted() && !part->UnMount(false)) {
+					umount2(part->Mount_Point.c_str(), MNT_DETACH);
+					LOGINFO("%s: lazy unmounted\n", part->Mount_Point.c_str());
+				}
+				part->Size = part->Used = part->Free = part->Backup_Size = 0;
+				part->Is_Present = false;
+				if (part->Is_Storage && DataManager::GetCurrentStoragePath() == part->Storage_Path) {
+					TWPartition* def = Get_Default_Storage_Partition();
+					if (def && def != part) {
+						DataManager::SetValue("tw_storage_path", def->Storage_Path);
+						DataManager::SetBackupFolder();
+					}
+				}
+				changed = true;
+			}
+		}
+		if (changed) {
+			static int storage_serial = 0;
+			DataManager::SetValue("tw_storage_changed", ++storage_serial); // reload storage lists
+		}
+	}
+	if (uevent_data.type != "disk")
+		return;
+
+'''
+if v1 in s:
+    s = s.replace(v1, v2, 1)
+elif s.count(head) == 1:
+    s = s.replace(head, head + v2, 1)
+else:
     sys.exit("ERROR: Handle_Uevent start not found exactly once")
+old_f = '\tif (uevent_data.subsystem == "block" && uevent_data.type == "disk") {\n'
+new_f = '\tif (uevent_data.subsystem == "block" && (uevent_data.type == "disk" || uevent_data.type == "partition")) {\n'
+if s.count(old_f) != 1:
+    sys.exit("ERROR: read_uevent block filter not found exactly once")
+s = s.replace(old_f, new_f, 1)
+open(p, "w").write(s)
+PY
+    echo "patched removable hotplug handling"
+fi
+if grep -q 'tw_storage_changed' "$PL"; then
+    echo "partition list reload on tw_storage_changed: already patched"
+else
+    python3 - "$PL" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = ("\tif (!isConditionTrue())\n\t\treturn 0;\n\n"
+       "\tif (varName == mVariable && !mUpdate)\n")
+new = ("\tif (!isConditionTrue())\n\t\treturn 0;\n\n"
+       "\tif (varName == \"tw_storage_changed\") { // removable storage plugged / unplugged\n"
+       "\t\tupdateList = true;\n\t\tmUpdate = 1;\n\t\treturn 0;\n\t}\n\n"
+       "\tif (varName == mVariable && !mUpdate)\n")
+if s.count(old) != 1:
+    sys.exit("ERROR: GUIPartitionList::NotifyVarChange body not found exactly once")
 open(p, "w").write(s.replace(old, new, 1))
 PY
-    echo "patched removable hot-unplug handling"
+    echo "patched partition list reload on tw_storage_changed"
+fi
+# The mount list re-checked every partition's mount state on every frame
+# (GUIPartitionList::Update). Mount state only changes by a tap on the list
+# (updated in NotifySelect), on page focus (list rebuilt) or by hotplug
+# (tw_storage_changed above), so drop the per-frame polling.
+if grep -q 'mount list: no per-frame polling' "$PL"; then
+    echo "mount list per-frame polling: already removed"
+else
+    python3 - "$PL" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = '''	if (ListType == "mount") {
+		int listSize = mList.size();
+		for (int i = 0; i < listSize; i++) {
+			if (PartitionManager.Is_Mounted_By_Path(mList.at(i).Mount_Point) && !mList.at(i).selected) {
+				mList.at(i).selected = 1;
+				mUpdate = 1;
+			} else if (!PartitionManager.Is_Mounted_By_Path(mList.at(i).Mount_Point) && mList.at(i).selected) {
+				mList.at(i).selected = 0;
+				mUpdate = 1;
+			}
+		}
+	}
+'''
+new = '''	// mount list: no per-frame polling (see tw_storage_changed / SetPageFocus)
+'''
+if s.count(old) != 1:
+    sys.exit("ERROR: mount list polling block not found exactly once")
+open(p, "w").write(s.replace(old, new, 1))
+PY
+    echo "removed mount list per-frame polling"
 fi
 
 # 13. landscape theme, flash_done page: the A/B-only "Wipe Dalvik" button kept

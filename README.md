@@ -124,7 +124,7 @@ stops with an error if a patch no longer applies after a `repo sync`.
 | 9 | Restore Defaults reloads the theme | otherwise the status bar and navbar break |
 | 10 | NTFS mount updates the size | USB OTG showed 0 MB |
 | 11 | unmounting removable storage clears its size | stale size after unmount |
-| 12 | hot-unplug of fixed `/dev/block/sdX` removable entries | unmount, clear size, switch storage back to internal |
+| 12 | hotplug of fixed `/dev/block/sdX` removable entries (uevent driven) | plug in: auto mount + size + MTP; unplug: unmount, clear size, switch storage back to internal; open storage lists reload |
 | 13 | landscape theme: A/B "Wipe Dalvik" button after flashing | it used portrait coordinates and landed on the header |
 | 14 | `system_vold-0001-…`, `bootable_recovery-0003-…` | AIDL GateKeeper (HIDL fallback) so PIN / password / pattern decryption works (TWRP-Test twrp-16.0) |
 
