@@ -2,12 +2,12 @@
 
 TWRP 3.7.1 (twrp-14.1) for the Lenovo Yoga Tab Plus **TB520FU** ("Lapis",
 Snapdragon 8 Gen 3 / SM8650 "pineapple"), built against ZUI 17.5.10.362
-(Android 14). Landscape theme.
+(Android 16). Landscape theme.
 
 | | |
 |---|---|
 | SoC | SM8650 (pineapple), A/B, virtual A/B |
-| Firmware base | ZUI 17.5.10.362 (Android 14, `UKQ1.240826.001`) |
+| Firmware base | ZUI 17.5.10.362 (Android 16; vendor frozen at Android 14, `UKQ1.240826.001`) |
 | Kernel | none in recovery.img (boot header v4, the ABL uses the kernel from `boot`); `prebuilt/kernel` (stock GKI 6.1) is only used for the build's VINTF check |
 | Panel | 2944×1840 dual-DSI, natively landscape |
 | Touch | Novatek, module loaded from `vendor_boot` (`modules.load.recovery`) |
